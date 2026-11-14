@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1220"><meta name="description" content="GOLD XAU/USD M5 signal dashboard">
+<title>Gold Scalper</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#121d30;--muted:#9aabc2;--gold:#f5c451;--green:#26d69a;--red:#ff657a;--line:#26354d}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#101d31,#080d17 65%);font:15px system-ui,-apple-system,Segoe UI,sans-serif;color:#eef4ff;padding:16px;max-width:600px;margin:auto}
+header{display:flex;justify-content:space-between;align-items:center;margin:6px 0 18px}h1{font-size:21px;margin:0;letter-spacing:1px}small,.muted{color:var(--muted)}.pill{border:1px solid #52617a;border-radius:20px;padding:5px 10px;font-size:11px;color:var(--gold)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 8px 25px #0003}
+.price{font-size:34px;font-weight:750;color:var(--gold);letter-spacing:-1px}.row{display:flex;justify-content:space-between;align-items:center;gap:12px}.signal{font-size:30px;font-weight:850;letter-spacing:1px}.buy{color:var(--green)}.sell{color:var(--red)}.wait{color:var(--gold)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.metric{background:#0b1423;border:1px solid var(--line);padding:12px;border-radius:12px}.metric b{display:block;font-size:17px;margin-top:4px}
+label{display:block;font-size:12px;color:var(--muted);margin:12px 0 6px}input{width:100%;background:#091321;color:white;border:1px solid #354761;border-radius:10px;padding:12px;font-size:15px}
+button{border:0;border-radius:12px;padding:13px 15px;font-weight:750;background:var(--gold);color:#18202b;font-size:15px;width:100%;margin-top:12px}
+button.secondary{background:#24334a;color:#eef4ff}button:disabled{opacity:.5}
+.note{font-size:12px;line-height:1.5;color:var(--muted)}.status{font-size:12px;margin-top:10px;color:var(--muted)}.status.error{color:#ff9aa7}.status.ok{color:var(--green)}
+hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+footer{text-align:center;color:var(--muted);font-size:11px;padding:15px 4px}
+a{color:var(--gold)}
+</style>
+</head>
+<body>
+<header><div><h1>GOLD <span style="color:var(--gold)">SCALPER</span></h1><small>XAU/USD · M5 strategy dashboard</small></div><span class="pill">BETA 0.1</span></header>
+<section class="card">
+ <div class="row"><span class="muted">LATEST PRICE</span><span class="pill" id="updated">NOT CONNECTED</span></div>
+ <div class="price" id="price">—</div><div class="muted" id="priceTime">Connect market data to begin</div>
+ <hr>
+ <div class="row"><span class="muted">SIGNAL</span><span class="signal wait" id="signal">WAIT</span></div>
+ <p class="note" id="reason">No live data yet. Add a Twelve Data API key below, then tap Refresh.</p>
+</section>
+<section class="card">
+ <div class="grid">
+  <div class="metric"><span class="muted">ENTRY</span><b id="entry">—</b></div>
+  <div class="metric"><span class="muted">STOP LOSS</span><b id="sl">—</b></div>
+  <div class="metric"><span class="muted">TAKE PROFIT 1 · 1R</span><b id="tp1">—</b></div>
+  <div class="metric"><span class="muted">TAKE PROFIT 2 · 1.5R</span><b id="tp2">—</b></div>
+ </div>
+ <p class="note" style="margin-bottom:0">Levels are calculated from the signal candle and recent swing. They are indicative, not broker execution prices.</p>
+</section>
+<section class="card">
+ <h3 style="margin:0 0 5px">Market data connection</h3>
+ <p class="note">This first version uses Twelve Data OHLC data for XAU/USD. Create an API key with a plan that supports Gold and 5-minute / 15-minute time series. API usage limits may apply.</p>
+ <label for="key">Twelve Data API key</label><input id="key" type="password" autocomplete="off" placeholder="Paste your API key">
+ <button id="save">Save key on this device</button>
+ <button class="secondary" id="refresh">Refresh signals</button>
+ <div id="status" class="status">Not connected</div>
+</section>
+<section class="card">
+ <h3 style="margin:0 0 8px">Strategy rules</h3>
+ <p class="note">BUY: M5 Parabolic SAR below price, close above Bollinger midline, RSI above 50, and M15 close above EMA50. SELL uses the reverse conditions. Signals are checked only on completed M5 candles.</p>
+ <p class="note">Indicators: Parabolic SAR (0.02 / 0.02 / 0.20), Bollinger Bands (20, 2), RSI (14), M15 EMA50 trend filter. Refresh is manual to avoid exhausting API credits.</p>
+</section>
+<footer>Educational tool only · Not financial advice · Test on demo before risking money.<br>Signals can be wrong; no win rate is guaranteed.</footer>
+<script>
+const $=id=>document.getElementById(id);
+let apiKey=localStorage.getItem('td_key')||'';
+$('key').value=apiKey;
+$('save').onclick=()=>{apiKey=$('key').value.trim(); if(!apiKey){setStatus('Please enter an API key.','error');return;}localStorage.setItem('td_key',apiKey);setStatus('Key saved on this device. Tap Refresh signals.','ok');};
+$('refresh').onclick=refresh;
+function setStatus(s,c=''){ $('status').textContent=s; $('status').className='status '+c; }
+async function getBars(interval,n=220){
+ const u=new URL('https://api.twelvedata.com/time_series');
+ u.searchParams.set('symbol','XAU/USD');u.searchParams.set('interval',interval);u.searchParams.set('outputsize',String(n));u.searchParams.set('order','ASC');u.searchParams.set('timezone','UTC');u.searchParams.set('apikey',apiKey);
+ const r=await fetch(u);const j=await r.json();
+ if(!r.ok||j.status==='error'||!j.values)throw new Error(j.message||j.code||'Market data request failed');
+ return j.values.map(x=>({t:x.datetime,o:+x.open,h:+x.high,l:+x.low,c:+x.close})).filter(x=>[x.o,x.h,x.l,x.c].every(Number.isFinite)).sort((a,b)=>new Date(a.t)-new Date(b.t));
+}
+function sma(a,n){return a.map((_,i)=>i<n-1?null:a.slice(i-n+1,i+1).reduce((s,x)=>s+x,0)/n);}
+function rsi(a,n=14){let out=Array(a.length).fill(null),g=0,l=0;if(a.length<=n)return out;for(let i=1;i<=n;i++){let d=a[i]-a[i-1];g+=Math.max(d,0);l+=Math.max(-d,0);}g/=n;l/=n;out[n]=l===0?100:100-100/(1+g/l);for(let i=n+1;i<a.length;i++){let d=a[i]-a[i-1];g=(g*(n-1)+Math.max(d,0))/n;l=(l*(n-1)+Math.max(-d,0))/n;out[i]=l===0?100:100-100/(1+g/l);}return out;}
+function psar(bars,step=.02,max=.2){
+ let out=Array(bars.length).fill(null);if(bars.length<3)return out;
+ let bull=bars[1].c>=bars[0].c,af=step,ep=bull?Math.max(bars[0].h,bars[1].h):Math.min(bars[0].l,bars[1].l),sar=bull?Math.min(bars[0].l,bars[1].l):Math.max(bars[0].h,bars[1].h);
+ for(let i=2;i<bars.length;i++){let prev=sar;sar=prev+af*(ep-prev);if(bull){sar=Math.min(sar,bars[i-1].l,bars[i-2].l);if(bars[i].l<sar){bull=false;sar=ep;ep=bars[i].l;af=step;}else if(bars[i].h>ep){ep=bars[i].h;af=Math.min(max,af+step);}}else{sar=Math.max(sar,bars[i-1].h,bars[i-2].h);if(bars[i].h>sar){bull=true;sar=ep;ep=bars[i].h;af=step;}else if(bars[i].l<ep){ep=bars[i].l;af=Math.min(max,af+step);}}out[i]=sar;}return out;
+}
+function ema(a,n){let out=Array(a.length).fill(null),k=2/(n+1),v=null;for(let i=0;i<a.length;i++){v=v===null?a[i]:a[i]*k+v*(1-k);out[i]=i>=n-1?v:null;}return out;}
+function fmt(x){return Number.isFinite(x)?x.toFixed(2):'—';}
+async function refresh(){
+ if(!apiKey){setStatus('Enter and save your Twelve Data API key first.','error');return;}
+ $('refresh').disabled=true;setStatus('Loading M5 and M15 market data…');
+ try{
+  let [m5,m15]=await Promise.all([getBars('5min',220),getBars('15min',220)]);
+  // Discard the newest candle unless its full interval has elapsed.
+  const now=Date.now();
+  if(m5.length&&now-new Date(m5[m5.length-1].t.replace(' ','T')+'Z').getTime()<5*60*1000)m5.pop();
+  if(m15.length&&now-new Date(m15[m15.length-1].t.replace(' ','T')+'Z').getTime()<15*60*1000)m15.pop();
+  if(m5.length<30||m15.length<55)throw new Error('Not enough completed candles returned for indicators.');
+  const i=m5.length-1,cl=m5.map(x=>x.c),mid=sma(cl,20),r=rsi(cl,14),sar=psar(m5),trend=ema(m15.map(x=>x.c),50);
+  const last=m5[i],t=m15.length-1,prev=m5[i-1];
+  let side='WAIT',why='Conditions are not aligned. Wait for the next completed candle.';
+  if(sar[i]<last.c&&last.c>mid[i]&&r[i]>50&&m15[t].c>trend[t]){side='BUY';why='All BUY conditions aligned on the last completed M5 candle.';}
+  else if(sar[i]>last.c&&last.c<mid[i]&&r[i]<50&&m15[t].c<trend[t]){side='SELL';why='All SELL conditions aligned on the last completed M5 candle.';}
+  $('price').textContent=fmt(last.c);$('priceTime').textContent='Last completed M5 candle · '+last.t+' UTC';$('updated').textContent='DATA UPDATED';
+  $('signal').textContent=side;$('signal').className='signal '+(side==='BUY'?'buy':side==='SELL'?'sell':'wait');$('reason').textContent=why;
+  let entry=last.c,sl=null,tp1=null,tp2=null;
+  if(side!=='WAIT'){
+   const look=m5.slice(Math.max(0,i-6),i+1);
+   sl=side==='BUY'?Math.min(...look.map(x=>x.l)):Math.max(...look.map(x=>x.h));
+   let risk=Math.abs(entry-sl);
+   if(risk>0){tp1=side==='BUY'?entry+risk:entry-risk;tp2=side==='BUY'?entry+1.5*risk:entry-1.5*risk;}
+  }
+  $('entry').textContent=side==='WAIT'?'—':fmt(entry);$('sl').textContent=sl===null?'—':fmt(sl);$('tp1').textContent=tp1===null?'—':fmt(tp1);$('tp2').textContent=tp2===null?'—':fmt(tp2);
+  setStatus('Updated successfully. Data source: Twelve Data · XAU/USD.','ok');
+ }catch(e){setStatus('Error: '+e.message,'error');}
+ finally{$('refresh').disabled=false;}
+}
+if('serviceWorker' in navigator && location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
+</script>
+</body></html>
